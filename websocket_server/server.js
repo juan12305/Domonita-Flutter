@@ -1,11 +1,14 @@
 const WebSocket = require('ws');
 
-const server = new WebSocket.Server({ port: 3000 });
+// ✅ Usa el puerto asignado por la nube o 3000 localmente
+const PORT = process.env.PORT || 3000;
+
+const server = new WebSocket.Server({ port: PORT });
 
 let esp32Client = null;
 let flutterClients = [];
 
-console.log('Servidor WebSocket iniciado en el puerto 3000');
+console.log(`Servidor WebSocket iniciado en el puerto ${PORT}`);
 
 server.on('connection', (ws) => {
   console.log('Nueva conexión establecida');
@@ -34,8 +37,12 @@ server.on('connection', (ws) => {
       // Datos de sensores desde ESP32, reenviar a Flutter
       try {
         const sensorData = JSON.parse(msg);
-        if (sensorData.temperature !== undefined && sensorData.humidity !== undefined && sensorData.light !== undefined) {
-          flutterClients.forEach(client => {
+        if (
+          sensorData.temperature !== undefined &&
+          sensorData.humidity !== undefined &&
+          sensorData.light !== undefined
+        ) {
+          flutterClients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN) {
               client.send(msg);
             }
@@ -54,7 +61,7 @@ server.on('connection', (ws) => {
       esp32Client = null;
       console.log('ESP32 desconectado');
     } else {
-      flutterClients = flutterClients.filter(client => client !== ws);
+      flutterClients = flutterClients.filter((client) => client !== ws);
       console.log('Flutter desconectado');
     }
   });
