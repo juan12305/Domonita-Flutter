@@ -26,7 +26,7 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(
           create: (_) {
-            final repository = SensorRepository(websocketUrl: 'ws://192.168.110.155:3000');
+            final repository = SensorRepository(websocketUrl: 'wss://domotica-ws.onrender.com');
             repository.init();
             return repository;
           },

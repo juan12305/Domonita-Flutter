@@ -1,16 +1,24 @@
+// server.js
+const express = require('express');
+const http = require('http');
 const WebSocket = require('ws');
 
-// ✅ Usa el puerto asignado por la nube o 3000 localmente
 const PORT = process.env.PORT || 3000;
 
-const server = new WebSocket.Server({ port: PORT });
+const app = express();
+
+// Render necesita que haya un endpoint HTTP activo
+app.get('/', (req, res) => {
+  res.send('Servidor WebSocket activo');
+});
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 let esp32Client = null;
 let flutterClients = [];
 
-console.log(`Servidor WebSocket iniciado en el puerto ${PORT}`);
-
-server.on('connection', (ws) => {
+wss.on('connection', (ws) => {
   console.log('Nueva conexión establecida');
 
   ws.on('message', (message) => {
@@ -26,15 +34,11 @@ server.on('connection', (ws) => {
       console.log('Flutter conectado');
       ws.send('connection_successful');
     } else if (msg === 'LED_ON' || msg === 'LED_OFF') {
-      // Comando desde Flutter al ESP32
       if (esp32Client && esp32Client.readyState === WebSocket.OPEN) {
         esp32Client.send(msg);
         console.log('Comando enviado al ESP32:', msg);
-      } else {
-        console.log('ESP32 no conectado, no se puede enviar comando');
       }
     } else {
-      // Datos de sensores desde ESP32, reenviar a Flutter
       try {
         const sensorData = JSON.parse(msg);
         if (
@@ -47,7 +51,7 @@ server.on('connection', (ws) => {
               client.send(msg);
             }
           });
-          console.log('Datos de sensores reenviados a Flutter:', msg);
+          console.log('Datos reenviados a Flutter:', msg);
         }
       } catch (e) {
         console.log('Mensaje no reconocido:', msg);
@@ -61,14 +65,12 @@ server.on('connection', (ws) => {
       esp32Client = null;
       console.log('ESP32 desconectado');
     } else {
-      flutterClients = flutterClients.filter((client) => client !== ws);
+      flutterClients = flutterClients.filter((c) => c !== ws);
       console.log('Flutter desconectado');
     }
   });
-
-  ws.on('error', (error) => {
-    console.error('Error en la conexión:', error);
-  });
 });
 
-console.log('Esperando conexiones...');
+server.listen(PORT, () => {
+  console.log(`Servidor WebSocket y HTTP activo en puerto ${PORT}`);
+});
