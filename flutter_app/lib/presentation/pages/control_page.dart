@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-
+import 'package:syncfusion_flutter_gauges/gauges.dart';
 import '../controllers/sensor_controller.dart';
 
 class ControlPage extends StatelessWidget {
@@ -9,144 +11,305 @@ class ControlPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Control de Domótica'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      ),
-      body: Consumer<SensorController>(
-        builder: (context, controller, child) {
-          final sensorData = controller.sensorData;
-          final connected = controller.connected;
+      body: SafeArea(
+        child: Consumer<SensorController>(
+          builder: (context, controller, child) {
+            final data = controller.sensorData;
+            final connected = controller.connected;
 
-          return Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Estado de conexión
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      connected ? Icons.wifi : Icons.wifi_off,
-                      color: connected ? Colors.green : Colors.red,
-                      size: 30,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      connected ? 'Conectado' : 'Desconectado',
-                      style: TextStyle(
-                        color: connected ? Colors.green : Colors.red,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+            final bool isBright = data?.light == 0; // 0 = mucha luz
+            final List<Color> dayColors = [
+              const Color(0xFF56CCF2),
+              const Color(0xFF2F80ED),
+              const Color(0xFF6DD5FA)
+            ];
+            final List<Color> nightColors = [
+              const Color(0xFF0F2027),
+              const Color(0xFF203A43),
+              const Color(0xFF2C5364)
+            ];
+
+            return AnimatedContainer(
+              duration: const Duration(seconds: 2),
+              curve: Curves.easeInOut,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: isBright ? dayColors : nightColors,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 16),
+
+                  // Estado de conexión
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        connected ? Icons.wifi : Icons.wifi_off,
+                        color: connected ? Colors.greenAccent : Colors.redAccent,
+                        size: 32,
+                      ).animate().scale(duration: 800.ms),
+                      const SizedBox(width: 8),
+                      Text(
+                        connected ? 'Conectado' : 'Desconectado',
+                        style: GoogleFonts.poppins(
+                          color: connected ? Colors.greenAccent : Colors.redAccent,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ).animate().fadeIn(duration: 700.ms),
+                    ],
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  if (data != null) ...[
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              // ====== Temperatura (halo cálido)
+                              _buildGaugeWithHalo(
+                                title: "Temperatura",
+                                value: data.temperature,
+                                unit: "°C",
+                                color: Colors.orangeAccent,
+                                icon: Icons.thermostat,
+                                haloColor: Colors.orangeAccent.withOpacity(0.35),
+                              ).animate().fadeIn(duration: 900.ms),
+
+                              // ====== Humedad (halo frío + azul más oscuro en modo día)
+                              _buildGaugeWithHalo(
+                                title: "Humedad",
+                                value: data.humidity,
+                                unit: "%",
+                                color: isBright
+                                    ? Colors.blue.shade800 // azul oscuro en modo día
+                                    : Colors.blueAccent, // azul claro en modo noche
+                                icon: Icons.water_drop,
+                                haloColor: isBright
+                                    ? Colors.white.withOpacity(0.25)
+                                    : Colors.blueAccent.withOpacity(0.3),
+                              ).animate().fadeIn(duration: 1100.ms),
+                            ],
+                          ),
+                          const SizedBox(height: 50),
+
+                          // ====== Luz (sin halo)
+                          _buildLightIndicator(data.light)
+                              .animate()
+                              .fadeIn(duration: 1300.ms),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 32),
+                  ] else
+                    const Expanded(
+                      child: Center(
+                        child: Text(
+                          'Esperando datos del sensor...',
+                          style: TextStyle(color: Colors.white70, fontSize: 16),
+                        ),
+                      ),
+                    ),
 
-                // Datos de sensores
-                if (sensorData != null) ...[
-                  _buildSensorCard(
-                    'Temperatura',
-                    '${sensorData.temperature.toStringAsFixed(1)} °C',
-                    Icons.thermostat,
-                    Colors.orange,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSensorCard(
-                    'Humedad',
-                    '${sensorData.humidity.toStringAsFixed(1)} %',
-                    Icons.water_drop,
-                    Colors.blue,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSensorCard(
-                    'Luz',
-                    (sensorData.light == 0)
-                        ? 'Mucha luz'
-                        : (sensorData.light == 1)
-                            ? 'Poca luz'
-                            : 'Valor desconocido',
-                    Icons.lightbulb,
-                    Colors.yellow,
-                  ),
-                ] else ...[
-                  const Center(
-                    child: Text(
-                      'Esperando datos de sensores...',
-                      style: TextStyle(fontSize: 16),
+                  // Botones LED
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: connected ? controller.turnLedOn : null,
+                            icon: const Icon(Icons.lightbulb, color: Colors.white),
+                            label: const Text("Encender LED"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.greenAccent.shade400,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              elevation: 12,
+                            ),
+                          ).animate().scale(duration: 400.ms),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: connected ? controller.turnLedOff : null,
+                            icon: const Icon(Icons.lightbulb_outline, color: Colors.white),
+                            label: const Text("Apagar LED"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent.shade400,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              elevation: 12,
+                            ),
+                          ).animate().scale(duration: 400.ms),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-                const Spacer(),
-
-                // Botones de control del LED
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: connected ? controller.turnLedOn : null,
-                        icon: const Icon(Icons.lightbulb),
-                        label: const Text('Encender LED'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: connected ? controller.turnLedOff : null,
-                        icon: const Icon(Icons.lightbulb_outline),
-                        label: const Text('Apagar LED'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
-  Widget _buildSensorCard(String title, String value, IconData icon, Color color) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
+  // Gauge con halo (usado en temperatura y humedad)
+  Widget _buildGaugeWithHalo({
+    required String title,
+    required double value,
+    required String unit,
+    required Color color,
+    required IconData icon,
+    required Color haloColor,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: haloColor,
+            blurRadius: 40,
+            spreadRadius: 12,
+          ),
+        ],
+      ),
+      child: _buildGauge(
+        title: title,
+        value: value,
+        unit: unit,
+        color: color,
+        icon: icon,
+      ),
+    );
+  }
+
+  Widget _buildGauge({
+    required String title,
+    required double value,
+    required String unit,
+    required Color color,
+    required IconData icon,
+  }) {
+    return SizedBox(
+      height: 220,
+      width: 170,
+      child: SfRadialGauge(
+        enableLoadingAnimation: true,
+        animationDuration: 1000,
+        axes: [
+          RadialAxis(
+            minimum: 0,
+            maximum: title == "Temperatura" ? 50 : 100,
+            showLabels: false,
+            showTicks: false,
+            axisLineStyle: AxisLineStyle(
+              thickness: 0.2,
+              color: Colors.white24,
+              thicknessUnit: GaugeSizeUnit.factor,
+            ),
+            pointers: [
+              RangePointer(
+                value: value,
+                width: 0.25,
+                sizeUnit: GaugeSizeUnit.factor,
+                color: color,
+                cornerStyle: CornerStyle.bothCurve,
+              ),
+            ],
+            annotations: [
+              GaugeAnnotation(
+                widget: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, color: color, size: 36),
+                    const SizedBox(height: 10),
+                    Text(
+                      "${value.toStringAsFixed(1)}$unit",
+                      style: GoogleFonts.poppins(
+                        color: color,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      title,
+                      style: GoogleFonts.poppins(
+                        color: Colors.white70,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLightIndicator(int light) {
+    final bool isBright = light == 0;
+    final Color color = isBright ? Colors.yellowAccent : Colors.indigoAccent;
+    final String status = isBright ? "Mucha luz" : "Poca luz";
+    final IconData icon = isBright ? Icons.wb_sunny_rounded : Icons.nightlight_round;
+
+    return Container(
+      height: 220,
+      width: 220,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            color.withOpacity(isBright ? 0.6 : 0.3),
+            Colors.transparent,
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.5),
+            blurRadius: isBright ? 30 : 10,
+            spreadRadius: isBright ? 10 : 2,
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 40, color: color),
-            const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 24,
-                    color: color,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+            Icon(icon, color: color, size: 60)
+                .animate(onPlay: (c) => c.repeat(reverse: true))
+                .scale(begin: const Offset(0.9, 0.9), end: const Offset(1.1, 1.1), duration: 1200.ms),
+            const SizedBox(height: 12),
+            Text(
+              status,
+              style: GoogleFonts.poppins(
+                color: color,
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            Text(
+              "Luz ambiental",
+              style: GoogleFonts.poppins(
+                color: Colors.white70,
+                fontSize: 16,
+              ),
             ),
           ],
         ),
