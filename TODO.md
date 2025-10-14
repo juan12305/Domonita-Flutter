@@ -1,3 +1,2 @@
-# TODO List for Changing Light Display in ControlPage
-
-- [ ] Edit control_page.dart to change '${sensorData.light}' to conditional string: sensorData.light == 0 ? 'mucha luz' : 'poca luz'
+- [x] Update platformio.ini to use board = wemos_d1_r32 for ESP32 D1 R32
+- [x] Verify configuration and test upload if needed
