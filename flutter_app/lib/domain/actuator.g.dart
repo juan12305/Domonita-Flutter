@@ -1,43 +1,40 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'sensor_data.dart';
+part of 'actuator.dart';
 
 // **************************************************************************
 // TypeAdapterGenerator
 // **************************************************************************
 
-class SensorDataAdapter extends TypeAdapter<SensorData> {
+class ActuatorAdapter extends TypeAdapter<Actuator> {
   @override
-  final int typeId = 0;
+  final int typeId = 1;
 
   @override
-  SensorData read(BinaryReader reader) {
+  Actuator read(BinaryReader reader) {
     final numOfFields = reader.readByte();
     final fields = <int, dynamic>{
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
-    return SensorData(
+    return Actuator(
       id: fields[0] as String,
-      temperature: fields[1] as double,
-      humidity: fields[2] as double,
-      light: fields[3] as int,
-      timestamp: fields[4] as String,
+      type: fields[1] as String,
+      state: fields[2] as bool,
+      timestamp: fields[3] as String,
     );
   }
 
   @override
-  void write(BinaryWriter writer, SensorData obj) {
+  void write(BinaryWriter writer, Actuator obj) {
     writer
-      ..writeByte(5)
+      ..writeByte(4)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
-      ..write(obj.temperature)
+      ..write(obj.type)
       ..writeByte(2)
-      ..write(obj.humidity)
+      ..write(obj.state)
       ..writeByte(3)
-      ..write(obj.light)
-      ..writeByte(4)
       ..write(obj.timestamp);
   }
 
@@ -47,7 +44,7 @@ class SensorDataAdapter extends TypeAdapter<SensorData> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is SensorDataAdapter &&
+      other is ActuatorAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }

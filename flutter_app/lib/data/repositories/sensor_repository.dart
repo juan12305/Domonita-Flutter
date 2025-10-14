@@ -1,18 +1,23 @@
+import 'dart:async';
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-
 import '../../domain/sensor_data.dart';
+import 'actuator_repository.dart';
 
 class SensorRepository extends ChangeNotifier {
   final String websocketUrl;
   late WebSocketChannel _channel;
-  late Box _box;
+  late Box<SensorData> _box;
+  late ActuatorRepository _actuatorRepository;
 
   SensorData? _lastSensorData;
   bool _connected = false;
+
+  // Control de escritura asíncrona en Hive
+  final List<SensorData> _pendingWrites = [];
+  bool _isWriting = false;
 
   SensorRepository({required this.websocketUrl});
 
@@ -20,49 +25,81 @@ class SensorRepository extends ChangeNotifier {
   bool get connected => _connected;
 
   Future<void> init() async {
-    _box = await Hive.openBox('sensorDataBox');
-    // Load last saved data
-    final savedData = _box.get('lastSensorData');
-    if (savedData != null) {
-      _lastSensorData = SensorData.fromJson(Map<String, dynamic>.from(savedData));
+    _box = await Hive.openBox<SensorData>('sensorDataBox');
+    _actuatorRepository = ActuatorRepository();
+    await _actuatorRepository.init();
+
+    // Cargar último dato guardado (si existe)
+    if (_box.isNotEmpty) {
+      _lastSensorData = _box.getAt(_box.length - 1);
     }
+
     _connect();
   }
 
+  // =======================
+  //  CONEXIÓN WEBSOCKET
+  // =======================
   void _connect() {
+    debugPrint('🔌 Conectando a WebSocket...');
     _channel = WebSocketChannel.connect(Uri.parse(websocketUrl));
 
-    _channel.stream.listen((message) {
+    _channel.stream.listen((message) async {
       try {
         final data = jsonDecode(message);
         if (data is Map<String, dynamic> &&
             data.containsKey('temperature') &&
             data.containsKey('humidity') &&
             data.containsKey('light')) {
-          _lastSensorData = SensorData.fromJson(data);
-          _box.put('lastSensorData', data);
-          notifyListeners();
+          final sensorData = SensorData.fromJson(data);
+
+          // Actualiza los datos en memoria
+          _lastSensorData = sensorData;
+
+          // Guarda en Hive sin bloquear la UI
+          _saveToHive(sensorData);
+
+          // Guarda el estado del ventilador de forma asíncrona
+          if (data.containsKey('temperature')) {
+            final temp = (data['temperature'] as num).toDouble();
+            unawaited(_actuatorRepository.saveActuatorState(
+              type: 'ventilador',
+              state: temp > 22.0,
+              timestamp: data['timestamp'] ?? DateTime.now().toIso8601String(),
+            ));
+          }
+
+          // Notifica a la UI en el siguiente frame
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            notifyListeners();
+          });
         }
       } catch (e) {
-        // Ignore non-JSON messages or errors
+        debugPrint("⚠️ Error al procesar mensaje WebSocket: $e");
       }
     }, onDone: () {
       _connected = false;
       notifyListeners();
+      debugPrint("⚠️ WebSocket cerrado. Reintentando...");
       _reconnect();
     }, onError: (error) {
       _connected = false;
       notifyListeners();
+      debugPrint("❌ Error WebSocket: $error. Reintentando...");
       _reconnect();
     });
 
     _channel.ready.then((_) {
       _connected = true;
       notifyListeners();
+      debugPrint("✅ WebSocket conectado correctamente");
       _channel.sink.add('FLUTTER_CONNECTED');
     });
   }
 
+  // =======================
+  //  RECONEXIÓN AUTOMÁTICA
+  // =======================
   void _reconnect() async {
     await Future.delayed(const Duration(seconds: 5));
     if (!_connected) {
@@ -70,18 +107,51 @@ class SensorRepository extends ChangeNotifier {
     }
   }
 
-  void sendLedOn() {
+  // =======================
+  //  GUARDADO EN HIVE
+  // =======================
+  void _saveToHive(SensorData data) async {
+    _pendingWrites.add(data);
+    if (_isWriting) return;
+
+    _isWriting = true;
+    while (_pendingWrites.isNotEmpty) {
+      final next = _pendingWrites.removeAt(0);
+      try {
+        await _box.add(next);
+      } catch (e) {
+        debugPrint("⚠️ Error al guardar en Hive: $e");
+      }
+    }
+    _isWriting = false;
+  }
+
+  // =======================
+  //  ACCIONES MANUALES LED
+  // =======================
+  void sendLedOn() async {
     if (_connected) {
       _channel.sink.add('LED_ON');
+      unawaited(_actuatorRepository.saveActuatorState(
+        type: 'bombillo',
+        state: true,
+        timestamp: DateTime.now().toIso8601String(),
+      ));
     }
   }
 
-  void sendLedOff() {
+  void sendLedOff() async {
     if (_connected) {
       _channel.sink.add('LED_OFF');
+      unawaited(_actuatorRepository.saveActuatorState(
+        type: 'bombillo',
+        state: false,
+        timestamp: DateTime.now().toIso8601String(),
+      ));
     }
   }
 
+  @override
   void dispose() {
     _channel.sink.close();
     super.dispose();

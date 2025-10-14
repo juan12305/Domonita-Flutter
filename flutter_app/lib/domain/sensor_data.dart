@@ -3,40 +3,46 @@ import 'package:hive/hive.dart';
 part 'sensor_data.g.dart';
 
 @HiveType(typeId: 0)
-class SensorData {
+class SensorData extends HiveObject {
   @HiveField(0)
-  final double temperature;
-
+  String id;
   @HiveField(1)
-  final double humidity;
-
+  double temperature;
   @HiveField(2)
-  final int light;
+  double humidity;
+  @HiveField(3)
+  int light;
+  @HiveField(4)
+  String timestamp;
 
   SensorData({
+    required this.id,
     required this.temperature,
     required this.humidity,
     required this.light,
+    required this.timestamp,
   });
 
-  factory SensorData.fromJson(Map<String, dynamic> json) {
-    return SensorData(
-      temperature: double.tryParse(json['temperature'].toString()) ?? 0.0,
-      humidity: double.tryParse(json['humidity'].toString()) ?? 0.0,
-      light: int.tryParse(json['light'].toString()) ?? 0,
-    );
-  }
+  factory SensorData.fromJson(Map<String, dynamic> json) => SensorData(
+        id: json['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        temperature: (json['temperature'] as num).toDouble(),
+        humidity: (json['humidity'] as num).toDouble(),
+        light: json['light'] is int ? json['light'] : int.tryParse(json['light'].toString()) ?? 0,
+        timestamp: json['timestamp'] ?? DateTime.now().toIso8601String(),
+      );
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'temperature': temperature,
       'humidity': humidity,
       'light': light,
+      'timestamp': timestamp,
     };
   }
 
   @override
   String toString() {
-    return 'SensorData(temperature: $temperature, humidity: $humidity, light: $light)';
+    return 'SensorData(id: $id, temperature: $temperature, humidity: $humidity, light: $light, timestamp: $timestamp)';
   }
 }
