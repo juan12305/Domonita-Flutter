@@ -157,43 +157,92 @@ class _ControlPageState extends State<ControlPage>
                           ),
                         ),
 
-                      // Botones LED
+                      // Modo Manual/Auto y Botones
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16),
-                        child: Row(
+                        child: Column(
                           children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: connected ? controller.turnLedOn : null,
-                                icon: const Icon(Icons.lightbulb, color: Colors.white),
-                                label: const Text("Encender LED"),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.greenAccent.shade400,
-                                  foregroundColor: Colors.black,
-                                  padding: const EdgeInsets.symmetric(vertical: 18),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  elevation: 12,
+                            // Switch Manual/Auto
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text("Manual", style: TextStyle(color: Colors.white)),
+                                Switch(
+                                  value: controller.isAutoMode,
+                                  onChanged: (value) => controller.toggleAutoMode(),
+                                  activeColor: Colors.greenAccent,
                                 ),
-                              ).animate().scale(duration: 400.ms),
+                                const Text("Auto", style: TextStyle(color: Colors.white)),
+                              ],
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: connected ? controller.turnLedOff : null,
-                                icon: const Icon(Icons.lightbulb_outline, color: Colors.white),
-                                label: const Text("Apagar LED"),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.redAccent.shade400,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 18),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(18),
+                            const SizedBox(height: 16),
+                            if (!controller.isAutoMode) ...[
+                              // Botones LED y FAN en modo manual
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.lightbulb,
+                                      label: "Encender Bombillo",
+                                      color: Colors.greenAccent,
+                                      onPressed: connected ? controller.turnLedOn : null,
+                                    ),
                                   ),
-                                  elevation: 12,
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.lightbulb_outline,
+                                      label: "Apagar Bombillo",
+                                      color: Colors.redAccent,
+                                      onPressed: connected ? controller.turnLedOff : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.air,
+                                      label: "Encender FAN",
+                                      color: Colors.blueAccent,
+                                      onPressed: connected ? controller.turnFanOn : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.air_outlined,
+                                      label: "Apagar FAN",
+                                      color: Colors.orangeAccent,
+                                      onPressed: connected ? controller.turnFanOff : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildActionButton(
+                                    icon: Icons.history,
+                                    label: "Ver Historial",
+                                    color: Colors.purpleAccent,
+                                    onPressed: () => Navigator.of(context).pushNamed('/history'),
+                                  ),
                                 ),
-                              ).animate().scale(duration: 400.ms),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildActionButton(
+                                    icon: Icons.chat,
+                                    label: "Asistente IA",
+                                    color: Colors.tealAccent,
+                                    onPressed: () => Navigator.of(context).pushNamed('/ai_chat'),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -302,6 +351,71 @@ class _ControlPageState extends State<ControlPage>
         ],
       ),
     );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.3),
+            color.withOpacity(0.1),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: color.withOpacity(0.5),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.2),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  color: color,
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ).animate().scale(duration: 400.ms);
   }
 
   Widget _buildLightIndicator(int light) {

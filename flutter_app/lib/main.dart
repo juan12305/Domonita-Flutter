@@ -4,11 +4,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'data/repositories/sensor_repository.dart';
+import 'data/services/gemini_service.dart';
 import 'domain/sensor_data.dart';
+import 'domain/actuator.dart';
 import 'presentation/controllers/sensor_controller.dart';
 import 'presentation/pages/control_page.dart';
 import 'presentation/pages/register_page.dart';
 import 'presentation/pages/login_page.dart';
+import 'presentation/pages/history_page.dart';
+import 'presentation/pages/ai_chat_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,18 +26,23 @@ void main() async {
   // Inicializar Hive
   await Hive.initFlutter();
   Hive.registerAdapter(SensorDataAdapter());
+  Hive.registerAdapter(ActuatorAdapter());
 
   // ✅ Inicializar el repositorio *antes* del runApp
-  final repository = SensorRepository(websocketUrl: 'wss://flutteresp.onrender.com');
+  final repository = SensorRepository(websocketUrl: 'wss://domotica-ws.onrender.com');
   await repository.init(); // 👈 Esperar a que la conexión WebSocket esté lista
 
-  runApp(MyApp(repository: repository));
+  // Gemini API Key (consider using environment variables or secure storage)
+  const String geminiApiKey = 'AIzaSyBgeAP1A2L8y7JUHnjw8-GQDPAnD_ilyJE';
+
+  runApp(MyApp(repository: repository, geminiApiKey: geminiApiKey));
 }
 
 class MyApp extends StatelessWidget {
   final SensorRepository repository;
+  final String geminiApiKey;
 
-  const MyApp({super.key, required this.repository});
+  const MyApp({super.key, required this.repository, required this.geminiApiKey});
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +53,7 @@ class MyApp extends StatelessWidget {
 
         // Controlador dependiente del repositorio
         ChangeNotifierProvider(
-          create: (_) => SensorController(repository: repository),
+          create: (_) => SensorController(repository: repository, geminiApiKey: geminiApiKey),
         ),
       ],
       child: MaterialApp(
@@ -69,6 +78,8 @@ class MyApp extends StatelessWidget {
           '/login': (context) => const LoginPage(),
           '/register': (context) => const RegisterPage(),
           '/control': (context) => const ControlPage(),
+          '/history': (context) => const HistoryPage(),
+          '/ai_chat': (context) => const AiChatPage(),
         },
       ),
     );

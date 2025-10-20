@@ -14,6 +14,7 @@ class SensorRepository extends ChangeNotifier {
 
   SensorData? _lastSensorData;
   bool _connected = false;
+  DateTime _lastSaved = DateTime.now();
 
   // Control de escritura asíncrona en Hive
   final List<SensorData> _pendingWrites = [];
@@ -23,6 +24,7 @@ class SensorRepository extends ChangeNotifier {
 
   SensorData? get lastSensorData => _lastSensorData;
   bool get connected => _connected;
+  List<SensorData> get allSensorData => _box.values.toList();
 
   Future<void> init() async {
     _box = await Hive.openBox<SensorData>('sensorDataBox');
@@ -111,6 +113,9 @@ class SensorRepository extends ChangeNotifier {
   //  GUARDADO EN HIVE
   // =======================
   void _saveToHive(SensorData data) async {
+    // Solo guardar si ha pasado al menos 1 minuto desde el último guardado
+    if (DateTime.now().difference(_lastSaved).inMinutes < 1) return;
+
     _pendingWrites.add(data);
     if (_isWriting) return;
 
@@ -119,6 +124,12 @@ class SensorRepository extends ChangeNotifier {
       final next = _pendingWrites.removeAt(0);
       try {
         await _box.add(next);
+        _lastSaved = DateTime.now();
+
+        // Mantener solo los últimos 200 registros
+        if (_box.length > 200) {
+          await _box.deleteAt(0);
+        }
       } catch (e) {
         debugPrint("⚠️ Error al guardar en Hive: $e");
       }
@@ -127,27 +138,65 @@ class SensorRepository extends ChangeNotifier {
   }
 
   // =======================
-  //  ACCIONES MANUALES LED
+  //  ACCIONES MANUALES LED Y FAN
   // =======================
   void sendLedOn() async {
+    debugPrint('sendLedOn called, connected: $_connected');
     if (_connected) {
-      _channel.sink.add('LED_ON');
+      debugPrint('Sending LIGHT_ON');
+      _channel.sink.add('LIGHT_ON');
       unawaited(_actuatorRepository.saveActuatorState(
         type: 'bombillo',
         state: true,
         timestamp: DateTime.now().toIso8601String(),
       ));
+    } else {
+      debugPrint('Not connected, cannot send LIGHT_ON');
     }
   }
 
   void sendLedOff() async {
+    debugPrint('sendLedOff called, connected: $_connected');
     if (_connected) {
-      _channel.sink.add('LED_OFF');
+      debugPrint('Sending LIGHT_OFF');
+      _channel.sink.add('LIGHT_OFF');
       unawaited(_actuatorRepository.saveActuatorState(
         type: 'bombillo',
         state: false,
         timestamp: DateTime.now().toIso8601String(),
       ));
+    } else {
+      debugPrint('Not connected, cannot send LIGHT_OFF');
+    }
+  }
+
+  void sendFanOn() async {
+    debugPrint('sendFanOn called, connected: $_connected');
+    if (_connected) {
+      debugPrint('Sending FAN_ON');
+      _channel.sink.add('FAN_ON');
+      unawaited(_actuatorRepository.saveActuatorState(
+        type: 'ventilador',
+        state: true,
+        timestamp: DateTime.now().toIso8601String(),
+      ));
+    } else {
+      debugPrint('Not connected, cannot send FAN_ON');
+    }
+  }
+
+  void sendFanOff() async {
+    debugPrint('sendFanOff called, connected: $_connected');
+    if (_connected) {
+      debugPrint('Sending FAN_OFF');
+      _channel.sink.add('FAN_OFF');
+      unawaited(_actuatorRepository.saveActuatorState(
+        type: 'ventilador',
+        state: false,
+        timestamp: DateTime.now().toIso8601String(),
+      ));
+    } else {
+      debugPrint('Not connected, cannot send FAN_OFF');
     }
   }
 
