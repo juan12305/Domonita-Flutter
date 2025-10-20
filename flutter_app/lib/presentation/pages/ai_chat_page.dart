@@ -144,14 +144,25 @@ class _AiChatPageState extends State<AiChatPage> {
     setState(() => _isChatLoading = true);
     _messageController.clear();
 
+    // ✅ Obtener los datos más recientes de los sensores
+    final repository = Provider.of<SensorRepository>(context, listen: false);
+    final data = repository.allSensorData.take(50).toList(); // puedes ajustar el número
+    debugPrint('AiChatPage: Loaded ${data.length} sensor readings');
+
+    // Construir historial del chat
     final history = _messages.map((m) => '${m['user']}: ${m['ai']}').toList();
-    debugPrint('AiChatPage: History length: ${history.length}');
-    final responseData = await _geminiService.chatResponse(message, history);
+
+    // ✅ Pasar los datos del sensor al servicio de Gemini
+    final responseData = await _geminiService.chatResponse(
+      message,
+      history,
+      sensorData: data, // 🔥 Nuevo parámetro con datos reales
+    );
+
     debugPrint('AiChatPage: Received response data: $responseData');
 
     String aiResponse = 'Error: No se pudo obtener respuesta de la IA';
     if (responseData != null) {
-      // Ensure we get the clean response text, not JSON
       final rawResponse = responseData['response'];
       if (rawResponse is String) {
         aiResponse = rawResponse;
@@ -159,7 +170,6 @@ class _AiChatPageState extends State<AiChatPage> {
         aiResponse = rawResponse['response'] ?? aiResponse;
       }
 
-      // Execute actions if any
       final actions = responseData['actions'] as List<dynamic>? ?? [];
       final controller = Provider.of<SensorController>(context, listen: false);
       for (final action in actions) {
@@ -185,7 +195,7 @@ class _AiChatPageState extends State<AiChatPage> {
       _isChatLoading = false;
     });
 
-    // Scroll to bottom after new message
+    // Scroll automático
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -196,7 +206,7 @@ class _AiChatPageState extends State<AiChatPage> {
       }
     });
 
-    // Save to Supabase
+    // Guardar en Supabase
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId != null) {
       try {
@@ -205,10 +215,10 @@ class _AiChatPageState extends State<AiChatPage> {
           'message': message,
           'response': aiResponse,
           'chat_id': _currentChatId,
+          'analysis_data': data.map((d) => d.toJson()).toList(), // ✅ guardar también los datos
         });
       } catch (e) {
         debugPrint('Error saving message to Supabase: $e');
-        // Continue without saving to DB
       }
     }
   }
