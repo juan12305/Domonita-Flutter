@@ -5,11 +5,24 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../data/repositories/sensor_repository.dart';
 import '../../data/services/gemini_service.dart';
-import '../../domain/sensor_data.dart';
 import '../controllers/sensor_controller.dart';
+import '../widgets/particle_field.dart';
+import '../theme/color_utils.dart';
 
 class AiChatPage extends StatefulWidget {
   const AiChatPage({super.key});
+
+  static const LinearGradient _dayGradient = LinearGradient(
+    colors: [Color(0xFF56CCF2), Color(0xFF2F80ED), Color(0xFF6DD5FA)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static const LinearGradient _nightGradient = LinearGradient(
+    colors: [Color(0xFF1A1A2E), Color(0xFF16213E), Color(0xFF0F3460)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 
   @override
   State<AiChatPage> createState() => _AiChatPageState();
@@ -19,11 +32,8 @@ class _AiChatPageState extends State<AiChatPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<Map<String, String>> _messages = [];
-  final List<List<Map<String, String>>> _chatHistory = [];
-  String? _analysis;
   bool _isChatLoading = false;
   bool _isAnalysisLoading = false;
-  bool _showAnalysis = false;
   int _currentChatId = 1;
 
   late GeminiService _geminiService;
@@ -75,44 +85,12 @@ class _AiChatPageState extends State<AiChatPage> {
     }
   }
 
-  Future<void> _generateAnalysis() async {
-    setState(() => _isAnalysisLoading = true);
-    final repository = Provider.of<SensorRepository>(context, listen: false);
-    final data = repository.allSensorData.take(100).toList();
-
-    final analysis = await _geminiService.generateAnalysis(data);
-    setState(() {
-      _analysis = analysis;
-      _isAnalysisLoading = false;
-    });
-
-    // Save to Supabase
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId != null && analysis != null) {
-      try {
-        await Supabase.instance.client.from('chat_history').insert({
-          'user_id': userId,
-          'message': 'Generar análisis',
-          'response': analysis,
-          'analysis_data': data.map((d) => d.toJson()).toList(),
-        });
-      } catch (e) {
-        debugPrint('Error saving analysis to Supabase: $e');
-        // Continue without saving to DB
-      }
-    }
-  }
-
   Future<void> _startNewChat() async {
-    if (_messages.isNotEmpty) {
-      _chatHistory.add(List.from(_messages));
-    }
-
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
 
     try {
-      // Buscar el máximo chat_id actual del usuario
+      // Buscar el maximo chat_id actual del usuario
       final response = await Supabase.instance.client
           .from('chat_history')
           .select('chat_id')
@@ -144,9 +122,9 @@ class _AiChatPageState extends State<AiChatPage> {
     setState(() => _isChatLoading = true);
     _messageController.clear();
 
-    // ✅ Obtener los datos más recientes de los sensores
+    // ✅ Obtener los datos mas recientes de los sensores
     final repository = Provider.of<SensorRepository>(context, listen: false);
-    final data = repository.allSensorData.take(50).toList(); // puedes ajustar el número
+    final data = repository.allSensorData.take(50).toList(); // puedes ajustar el numero
     debugPrint('AiChatPage: Loaded ${data.length} sensor readings');
 
     // Construir historial del chat
@@ -156,10 +134,11 @@ class _AiChatPageState extends State<AiChatPage> {
     final responseData = await _geminiService.chatResponse(
       message,
       history,
-      sensorData: data, // 🔥 Nuevo parámetro con datos reales
+      sensorData: data, // 🔥 Nuevo parametro con datos reales
     );
 
     debugPrint('AiChatPage: Received response data: $responseData');
+    if (!mounted) return;
 
     String aiResponse = 'Error: No se pudo obtener respuesta de la IA';
     if (responseData != null) {
@@ -172,20 +151,63 @@ class _AiChatPageState extends State<AiChatPage> {
 
       final actions = responseData['actions'] as List<dynamic>? ?? [];
       final controller = Provider.of<SensorController>(context, listen: false);
-      for (final action in actions) {
+      var executedAction = false;
+      for (final dynamic rawAction in actions) {
+        final actionValue = _normalizeAction(rawAction);
+        if (actionValue == null) {
+          debugPrint('AiChatPage: Ignoring invalid action $rawAction');
+          continue;
+        }
+
+        final action = actionValue.toUpperCase();
+        debugPrint('AiChatPage: Executing action $action');
         switch (action) {
-          case 'turn_led_on':
+          case 'TURN_LED_ON':
+          case 'TURN_LIGHT_ON':
+          case 'LED_ON':
+          case 'LIGHT_ON':
             controller.turnLedOn();
+            executedAction = true;
             break;
-          case 'turn_led_off':
+          case 'TURN_LED_OFF':
+          case 'TURN_LIGHT_OFF':
+          case 'LED_OFF':
+          case 'LIGHT_OFF':
+          case 'TURN OFF LIGHT':
+          case 'APAGAR LUZ':
+          case 'APAGAR BOMBILLO':
+          case 'TURN OFF THE LIGHT':
             controller.turnLedOff();
+            executedAction = true;
             break;
-          case 'turn_fan_on':
+          case 'TURN_FAN_ON':
+          case 'FAN_ON':
+          case 'TURN_ON_FAN':
             controller.turnFanOn();
+            executedAction = true;
             break;
-          case 'turn_fan_off':
+          case 'TURN_FAN_OFF':
+          case 'FAN_OFF':
+          case 'TURN_OFF_FAN':
+          case 'TURN OFF FAN':
+          case 'TURN_OFF_THE_FAN':
+          case 'APAGAR VENTILADOR':
             controller.turnFanOff();
+            executedAction = true;
             break;
+          default:
+            debugPrint('AiChatPage: Unknown action "$rawAction"');
+        }
+      }
+
+      if (!executedAction) {
+        final combinedText = '$message $aiResponse';
+        final handled = _handleNaturalLanguageIntent(
+          combinedText,
+          controller,
+        );
+        if (!handled) {
+          debugPrint('AiChatPage: No actionable command detected.');
         }
       }
     }
@@ -195,7 +217,7 @@ class _AiChatPageState extends State<AiChatPage> {
       _isChatLoading = false;
     });
 
-    // Scroll automático
+    // Scroll automatico
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -215,7 +237,7 @@ class _AiChatPageState extends State<AiChatPage> {
           'message': message,
           'response': aiResponse,
           'chat_id': _currentChatId,
-          'analysis_data': data.map((d) => d.toJson()).toList(), // ✅ guardar también los datos
+          'analysis_data': data.map((d) => d.toJson()).toList(), // ✅ guardar tambien los datos
         });
       } catch (e) {
         debugPrint('Error saving message to Supabase: $e');
@@ -229,9 +251,8 @@ class _AiChatPageState extends State<AiChatPage> {
     final data = repository.allSensorData.take(100).toList();
 
     final analysis = await _geminiService.generateAnalysis(data);
+    if (!context.mounted) return;
     setState(() => _isAnalysisLoading = false);
-
-    if (!mounted) return;
 
     showDialog(
       context: context,
@@ -253,7 +274,7 @@ class _AiChatPageState extends State<AiChatPage> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.tealAccent.withOpacity(0.2),
+                        color: adjustOpacity(Colors.tealAccent, 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Icon(
@@ -265,7 +286,7 @@ class _AiChatPageState extends State<AiChatPage> {
                     const SizedBox(width: 16),
                     Expanded(
                       child: Text(
-                        'Análisis de Datos del Sistema',
+                        'Analisis de Datos del Sistema',
                         style: GoogleFonts.poppins(
                           color: Colors.white,
                           fontSize: 20,
@@ -280,31 +301,19 @@ class _AiChatPageState extends State<AiChatPage> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                if (analysis != null) ...[
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 400),
-                    child: SingleChildScrollView(
-                      child: Text(
-                        analysis,
-                        style: GoogleFonts.poppins(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          height: 1.6,
-                        ),
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  Center(
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 400),
+                  child: SingleChildScrollView(
                     child: Text(
-                      'No se pudo generar el análisis',
+                      analysis,
                       style: GoogleFonts.poppins(
-                        color: Colors.redAccent,
-                        fontSize: 16,
+                        color: Colors.white70,
+                        fontSize: 14,
+                        height: 1.6,
                       ),
                     ),
                   ),
-                ],
+                ),
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
@@ -330,11 +339,11 @@ class _AiChatPageState extends State<AiChatPage> {
 
     // Save analysis to Supabase
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId != null && analysis != null) {
+    if (userId != null) {
       try {
         await Supabase.instance.client.from('chat_history').insert({
           'user_id': userId,
-          'message': 'Generar análisis',
+          'message': 'Generar analisis',
           'response': analysis,
           'analysis_data': data.map((d) => d.toJson()).toList(),
         });
@@ -458,9 +467,7 @@ class _AiChatPageState extends State<AiChatPage> {
                         itemBuilder: (context, index) {
                           final chat = chats[index];
                           final firstMessage = chat.first;
-                          final lastMessage = chat.last;
                           final startTime = DateTime.parse(firstMessage['created_at']).toLocal();
-                          final endTime = DateTime.parse(lastMessage['created_at']).toLocal();
 
                           return GestureDetector(
                             onTap: () {
@@ -473,7 +480,7 @@ class _AiChatPageState extends State<AiChatPage> {
                               decoration: BoxDecoration(
                                 color: const Color(0xFF0F0F23),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white.withOpacity(0.1)),
+                                border: Border.all(color: adjustOpacity(Colors.white, 0.1)),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -515,7 +522,7 @@ class _AiChatPageState extends State<AiChatPage> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    chat.first['message'] ?? 'Mensaje vacío',
+                                    chat.first['message'] ?? 'Mensaje vacio',
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: GoogleFonts.poppins(
@@ -548,7 +555,7 @@ class _AiChatPageState extends State<AiChatPage> {
       grouped.putIfAbsent(chatId, () => []).add(message);
     }
 
-    // Ordenar los chats por chat_id descendente (último chat primero)
+    // Ordenar los chats por chat_id descendente (ultimo chat primero)
     final sortedChats = grouped.entries.toList()
       ..sort((a, b) => b.key.compareTo(a.key));
 
@@ -566,20 +573,30 @@ class _AiChatPageState extends State<AiChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isTablet = MediaQuery.of(context).size.width > 600;
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final mediaQuery = MediaQuery.of(context);
+    final isTablet = mediaQuery.size.width > 600;
+    final isLandscape = mediaQuery.orientation == Orientation.landscape;
+    final sensorData = context.watch<SensorController>().sensorData;
+    final gradient = (sensorData?.light == 0)
+        ? AiChatPage._dayGradient
+        : AiChatPage._nightGradient;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F23),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A2E),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
+        flexibleSpace: AnimatedContainer(
+          duration: const Duration(seconds: 2),
+          decoration: BoxDecoration(gradient: gradient),
+        ),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.tealAccent.withOpacity(0.2),
+                color: adjustOpacity(Colors.tealAccent, 0.2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
@@ -617,158 +634,63 @@ class _AiChatPageState extends State<AiChatPage> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Quick Actions Bar
-            Container(
-              margin: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 16, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _isAnalysisLoading ? null : () => _showAnalysisDialog(context),
-                      icon: _isAnalysisLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.analytics_outlined),
-                      label: Text(
-                        _isAnalysisLoading ? 'Generando...' : 'Análisis de Datos',
-                        style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.tealAccent.withOpacity(0.1),
-                        foregroundColor: Colors.tealAccent,
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isTablet ? 24 : 16,
-                          vertical: isTablet ? 14 : 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: const BorderSide(color: Colors.tealAccent, width: 1),
-                        ),
-                        elevation: 0,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blueAccent.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
-                    ),
-                    child: Text(
-                      '${_messages.length} mensajes',
-                      style: GoogleFonts.poppins(
-                        color: Colors.blueAccent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ).animate().fadeIn(duration: 300.ms),
-
-            // Chat Messages
-            Expanded(
-              child: Container(
-                margin: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A2E),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const ParticleField(),
+          AnimatedContainer(
+            duration: const Duration(seconds: 2),
+            curve: Curves.easeInOut,
+            decoration: BoxDecoration(gradient: gradient),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                _QuickActionsBar(
+                  isLoading: _isAnalysisLoading,
+                  isTablet: isTablet,
+                  messageCount: _messages.length,
+                  onGenerateAnalysis: () => _showAnalysisDialog(context),
                 ),
-                child: _messages.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-  controller: _scrollController,
-  padding: EdgeInsets.all(isTablet ? 24 : 16),
-  itemCount: _messages.length,
-  itemBuilder: (context, index) {
-    final msg = _messages[index];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Burbuja del usuario
-        _buildMessageBubble({'user': msg['user']!}, true, isTablet),
-        const SizedBox(height: 8),
-        // Burbuja de la IA
-        _buildMessageBubble({'ai': msg['ai']!}, false, isTablet),
-      ],
-    );
-  },
-),
-              ),
-            ),
-
-            // Message Input
-            Container(
-              margin: EdgeInsets.all(isTablet ? 24 : 16),
-              padding: EdgeInsets.symmetric(
-                horizontal: isTablet ? 24 : 16,
-                vertical: isTablet ? 16 : 8,
-              ),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A1A2E),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      style: GoogleFonts.poppins(color: Colors.white),
-                      maxLines: isLandscape ? 2 : 1,
-                      decoration: InputDecoration(
-                        hintText: 'Pregunta sobre tu sistema de domótica...',
-                        hintStyle: GoogleFonts.poppins(
-                          color: Colors.white38,
-                          fontSize: isTablet ? 16 : 14,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: isTablet ? 20 : 16,
-                          vertical: isTablet ? 16 : 12,
-                        ),
-                      ),
-                      onSubmitted: (_) => _sendMessage(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
+                Expanded(
+                  child: Container(
+                    margin: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 16),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Colors.tealAccent, Colors.cyanAccent],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
+                      color: adjustOpacity(Colors.black, 0.35),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: adjustOpacity(Colors.white, 0.1)),
                     ),
-                    child: IconButton(
-                      icon: _isChatLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : const Icon(Icons.send, color: Colors.white),
-                      onPressed: _isChatLoading ? null : _sendMessage,
-                      padding: EdgeInsets.all(isTablet ? 16 : 12),
-                    ),
+                    child: _messages.isEmpty
+                        ? _buildEmptyState()
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: EdgeInsets.all(isTablet ? 24 : 16),
+                            itemCount: _messages.length,
+                            itemBuilder: (context, index) {
+                              final msg = _messages[index];
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _buildMessageBubble({'user': msg['user']!}, true, isTablet),
+                                  const SizedBox(height: 8),
+                                  _buildMessageBubble({'ai': msg['ai']!}, false, isTablet),
+                                ],
+                              );
+                            },
+                          ),
                   ),
-                ],
-              ),
+                ),
+                _MessageInputBar(
+                  controller: _messageController,
+                  isLandscape: isLandscape,
+                  isLoading: _isChatLoading,
+                  isTablet: isTablet,
+                  onSend: _sendMessage,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -781,7 +703,7 @@ class _AiChatPageState extends State<AiChatPage> {
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Colors.tealAccent.withOpacity(0.1),
+              color: adjustOpacity(Colors.tealAccent, 0.1),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -801,7 +723,7 @@ class _AiChatPageState extends State<AiChatPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Pregúntame sobre tu sistema de domótica,\nlos sensores, o genera un análisis de datos.',
+            'Preguntame sobre tu sistema de domotica,\nlos sensores, o genera un analisis de datos.',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
               color: Colors.white60,
@@ -826,7 +748,7 @@ class _AiChatPageState extends State<AiChatPage> {
         padding: EdgeInsets.all(isTablet ? 20 : 16),
         decoration: BoxDecoration(
           color: isUser
-              ? Colors.tealAccent.withOpacity(0.2)
+              ? adjustOpacity(Colors.tealAccent, 0.2)
               : const Color(0xFF16213E),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
@@ -835,7 +757,7 @@ class _AiChatPageState extends State<AiChatPage> {
             bottomRight: isUser ? const Radius.circular(4) : const Radius.circular(16),
           ),
           border: Border.all(
-            color: isUser ? Colors.tealAccent.withOpacity(0.3) : Colors.transparent,
+            color: isUser ? adjustOpacity(Colors.tealAccent, 0.3) : Colors.transparent,
           ),
         ),
         child: Column(
@@ -851,7 +773,7 @@ class _AiChatPageState extends State<AiChatPage> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  isUser ? 'Tú' : 'Asistente IA',
+                  isUser ? 'Tu' : 'Asistente IA',
                   style: GoogleFonts.poppins(
                     color: isUser ? Colors.tealAccent : Colors.blueAccent,
                     fontSize: 12,
@@ -876,5 +798,207 @@ class _AiChatPageState extends State<AiChatPage> {
           begin: isUser ? 0.2 : -0.2,
           duration: 300.ms,
         );
+  }
+}
+
+String? _normalizeAction(dynamic rawAction) {
+  if (rawAction == null) return null;
+  if (rawAction is String) return rawAction.trim();
+  if (rawAction is Map && rawAction['action'] is String) {
+    return (rawAction['action'] as String).trim();
+  }
+  return rawAction.toString().trim();
+}
+
+bool _handleNaturalLanguageIntent(
+  String text,
+  SensorController controller,
+) {
+  final lower = text.toLowerCase();
+  final wantsOn = lower.contains('enciende') ||
+      lower.contains('prende') ||
+      lower.contains('turn on') ||
+      lower.contains('encender') ||
+      lower.contains('activar');
+
+  final wantsOff = lower.contains('apaga') ||
+      lower.contains('apague') ||
+      lower.contains('turn off') ||
+      lower.contains('apag') ||
+      lower.contains('desactiva');
+
+  final mentionsLight =
+      lower.contains('bombillo') || lower.contains('luz') || lower.contains('light');
+  final mentionsFan =
+      lower.contains('ventilador') || lower.contains('fan');
+
+  var handled = false;
+  if (mentionsLight && wantsOn) {
+    controller.turnLedOn();
+    handled = true;
+  } else if (mentionsLight && wantsOff) {
+    controller.turnLedOff();
+    handled = true;
+  }
+
+  if (mentionsFan && wantsOn) {
+    controller.turnFanOn();
+    handled = true;
+  } else if (mentionsFan && wantsOff) {
+    controller.turnFanOff();
+    handled = true;
+  }
+
+  return handled;
+}
+class _QuickActionsBar extends StatelessWidget {
+  const _QuickActionsBar({
+    required this.isLoading,
+    required this.isTablet,
+    required this.messageCount,
+    required this.onGenerateAnalysis,
+  });
+
+  final bool isLoading;
+  final bool isTablet;
+  final int messageCount;
+  final VoidCallback onGenerateAnalysis;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 16, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: isLoading ? null : onGenerateAnalysis,
+              icon: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.analytics_outlined),
+              label: Text(
+                isLoading ? 'Generando...' : 'Analisis de Datos',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: adjustOpacity(Colors.tealAccent, 0.12),
+                foregroundColor: Colors.tealAccent,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTablet ? 24 : 16,
+                  vertical: isTablet ? 14 : 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Colors.tealAccent, width: 1),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: adjustOpacity(Colors.blueAccent, 0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: adjustOpacity(Colors.blueAccent, 0.35)),
+            ),
+            child: Text(
+              '$messageCount mensajes',
+              style: GoogleFonts.poppins(
+                color: Colors.blueAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 300.ms);
+  }
+}
+
+class _MessageInputBar extends StatelessWidget {
+  const _MessageInputBar({
+    required this.controller,
+    required this.isLandscape,
+    required this.isLoading,
+    required this.isTablet,
+    required this.onSend,
+  });
+
+  final TextEditingController controller;
+  final bool isLandscape;
+  final bool isLoading;
+  final bool isTablet;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: EdgeInsets.all(isTablet ? 24 : 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 24 : 16,
+        vertical: isTablet ? 16 : 8,
+      ),
+      decoration: BoxDecoration(
+        color: adjustOpacity(Colors.black, 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: adjustOpacity(Colors.white, 0.12)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              style: GoogleFonts.poppins(color: Colors.white),
+              maxLines: isLandscape ? 2 : 1,
+              decoration: InputDecoration(
+                hintText: 'Pregunta sobre tu sistema de domotica...',
+                hintStyle: GoogleFonts.poppins(
+                  color: Colors.white38,
+                  fontSize: isTablet ? 16 : 14,
+                ),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: isTablet ? 20 : 16,
+                  vertical: isTablet ? 16 : 12,
+                ),
+              ),
+              onSubmitted: (_) {
+                if (!isLoading) onSend();
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Colors.tealAccent, Colors.cyanAccent],
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.send, color: Colors.white),
+              onPressed: isLoading ? null : onSend,
+              padding: EdgeInsets.all(isTablet ? 16 : 12),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

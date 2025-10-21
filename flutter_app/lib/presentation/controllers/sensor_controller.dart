@@ -10,10 +10,10 @@ class SensorController extends ChangeNotifier {
   bool _isAutoMode = false;
   Map<String, String>? _cachedDecision;
   DateTime? _lastDecisionTime;
+  bool _isEvaluatingAutoDecision = false;
 
-  // Cache decisions for 5 minutes to avoid excessive API calls
+  // Cache decisions briefly to avoid llamadas consecutivas al modelo
   static const Duration _decisionCacheDuration = Duration(seconds: 15);
-
 
   SensorController({required this.repository, required String geminiApiKey})
       : geminiService = GeminiService(geminiApiKey) {
@@ -24,31 +24,14 @@ class SensorController extends ChangeNotifier {
   bool get connected => repository.connected;
   bool get isAutoMode => _isAutoMode;
 
-  void _onRepositoryChanged() async {
+  void _onRepositoryChanged() {
     notifyListeners();
-    if (_isAutoMode && sensorData != null) {
-      debugPrint('Auto mode active, sensor data: ${sensorData!.toJson()}');
-      final decision = await getAutoDecision();
-      debugPrint('AI decision: $decision');
-      if (decision != null) {
-        if (decision['light_action'] == 'ON') {
-          debugPrint('AI decided to turn LIGHT ON');
-          turnLedOn();
-        } else {
-          debugPrint('AI decided to turn LIGHT OFF');
-          turnLedOff();
-        }
-        if (decision['fan_action'] == 'ON') {
-          debugPrint('AI decided to turn FAN ON');
-          turnFanOn();
-        } else {
-          debugPrint('AI decided to turn FAN OFF');
-          turnFanOff();
-        }
-      } else {
-        debugPrint('AI decision returned null');
-      }
-    }
+
+    if (!_isAutoMode) return;
+    final snapshot = repository.lastSensorData;
+    if (snapshot == null) return;
+
+    _evaluateAutoMode(snapshot);
   }
 
   void turnLedOn() {
@@ -78,29 +61,51 @@ class SensorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Map<String, String>?> getAutoDecision() async {
-    if (sensorData == null) return null;
-
-    // Check if we have a cached decision that's still valid
+  Future<Map<String, String>> getAutoDecision(SensorData snapshot) async {
     if (_cachedDecision != null && _lastDecisionTime != null) {
-      final timeSinceLastDecision = DateTime.now().difference(_lastDecisionTime!);
+      final now = DateTime.now();
+      final timeSinceLastDecision = now.difference(_lastDecisionTime!);
       if (timeSinceLastDecision < _decisionCacheDuration) {
-        debugPrint('Using cached AI decision (age: ${timeSinceLastDecision.inMinutes} minutes)');
-        return _cachedDecision;
+        debugPrint(
+          'Using cached AI decision (age: ${timeSinceLastDecision.inSeconds}s)',
+        );
+        return _cachedDecision!;
       }
     }
 
-    // Get new decision from AI
-    final decision = await geminiService.getAutoDecision(sensorData!);
+    _cachedDecision = await geminiService.getAutoDecision(snapshot);
+    _lastDecisionTime = DateTime.now();
+    debugPrint('Cached new AI decision for $_decisionCacheDuration');
 
-    // Cache the decision if successful
-    if (decision != null) {
-      _cachedDecision = decision;
-      _lastDecisionTime = DateTime.now();
-      debugPrint('Cached new AI decision for 5 minutes');
+    return _cachedDecision!;
+  }
+
+  Future<void> _evaluateAutoMode(SensorData snapshot) async {
+    if (_isEvaluatingAutoDecision) return;
+    _isEvaluatingAutoDecision = true;
+    try {
+      debugPrint('Auto mode active, sensor data: ${snapshot.toJson()}');
+      final decision = await getAutoDecision(snapshot);
+      debugPrint('AI decision: $decision');
+
+      if (decision['light_action'] == 'ON') {
+        debugPrint('AI decided to turn LIGHT ON');
+        turnLedOn();
+      } else if (decision['light_action'] == 'OFF') {
+        debugPrint('AI decided to turn LIGHT OFF');
+        turnLedOff();
+      }
+
+      if (decision['fan_action'] == 'ON') {
+        debugPrint('AI decided to turn FAN ON');
+        turnFanOn();
+      } else if (decision['fan_action'] == 'OFF') {
+        debugPrint('AI decided to turn FAN OFF');
+        turnFanOff();
+      }
+    } finally {
+      _isEvaluatingAutoDecision = false;
     }
-
-    return decision;
   }
 
   @override

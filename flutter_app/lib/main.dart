@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'data/repositories/sensor_repository.dart';
-import 'data/services/gemini_service.dart';
 import 'domain/sensor_data.dart';
 import 'domain/actuator.dart';
 import 'presentation/controllers/sensor_controller.dart';
